@@ -13,7 +13,7 @@ class Wrapper(Layer):
         Should be called at the end of .build() in the
         children classes.
         '''
-        self.trainable_weights = getattr(self.layer, 'trainable_weights', [])
+        self._trainable_weights = getattr(self.layer, '_trainable_weights', [])
         self.non_trainable_weights = getattr(self.layer, 'non_trainable_weights', [])
         self.updates = getattr(self.layer, 'updates', [])
         self.regularizers = getattr(self.layer, 'regularizers', [])

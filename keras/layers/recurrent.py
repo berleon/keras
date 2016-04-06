@@ -319,7 +319,7 @@ class SimpleRNN(Recurrent):
             self.W_regularizer.set_param(self.b)
             self.regularizers.append(self.b_regularizer)
 
-        self.trainable_weights = [self.W, self.U, self.b]
+        self._trainable_weights = [self.W, self.U, self.b]
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
@@ -481,7 +481,7 @@ class GRU(Recurrent):
                                                         self.b_h]))
             self.regularizers.append(self.b_regularizer)
 
-        self.trainable_weights = [self.W_z, self.U_z, self.b_z,
+        self._trainable_weights = [self.W_z, self.U_z, self.b_z,
                                   self.W_r, self.U_r, self.b_r,
                                   self.W_h, self.U_h, self.b_h]
         if self.stateful:
@@ -690,7 +690,7 @@ class LSTM(Recurrent):
                                                         self.b_o]))
             self.regularizers.append(self.b_regularizer)
 
-        self.trainable_weights = [self.W_i, self.U_i, self.b_i,
+        self._trainable_weights = [self.W_i, self.U_i, self.b_i,
                                   self.W_c, self.U_c, self.b_c,
                                   self.W_f, self.U_f, self.b_f,
                                   self.W_o, self.U_o, self.b_o]

@@ -67,7 +67,7 @@ class BatchNormalization(Layer):
 
         self.gamma = self.gamma_init(shape, name='{}_gamma'.format(self.name))
         self.beta = self.beta_init(shape, name='{}_beta'.format(self.name))
-        self.trainable_weights = [self.gamma, self.beta]
+        self._trainable_weights = [self.gamma, self.beta]
 
         self.running_mean = K.zeros(shape,
                                     name='{}_running_mean'.format(self.name))

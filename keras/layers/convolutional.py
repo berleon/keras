@@ -119,7 +119,7 @@ class Convolution1D(Layer):
         self.W_shape = (self.nb_filter, input_dim, self.filter_length, 1)
         self.W = self.init(self.W_shape, name='{}_W'.format(self.name))
         self.b = K.zeros((self.nb_filter,), name='{}_b'.format(self.name))
-        self.trainable_weights = [self.W, self.b]
+        self._trainable_weights = [self.W, self.b]
         self.regularizers = []
 
         if self.W_regularizer:
@@ -287,7 +287,7 @@ class Convolution2D(Layer):
             raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
         self.W = self.init(self.W_shape, name='{}_W'.format(self.name))
         self.b = K.zeros((self.nb_filter,), name='{}_b'.format(self.name))
-        self.trainable_weights = [self.W, self.b]
+        self._trainable_weights = [self.W, self.b]
         self.regularizers = []
 
         if self.W_regularizer:
@@ -472,7 +472,7 @@ class Convolution3D(Layer):
 
         self.W = self.init(self.W_shape, name='{}_W'.format(self.name))
         self.b = K.zeros((self.nb_filter,), name='{}_b'.format(self.name))
-        self.trainable_weights = [self.W, self.b]
+        self._trainable_weights = [self.W, self.b]
         self.regularizers = []
 
         if self.W_regularizer:
@@ -1055,7 +1055,7 @@ class UpSampling3D(Layer):
     def __init__(self, size=(2, 2, 2), dim_ordering='th', **kwargs):
         if K._BACKEND != 'theano':
             raise Exception(self.__class__.__name__ +
-                            ' is currently only working with Theano backend.') 
+                            ' is currently only working with Theano backend.')
         self.size = tuple(size)
         assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
         self.dim_ordering = dim_ordering

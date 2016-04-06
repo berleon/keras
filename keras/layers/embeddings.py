@@ -92,7 +92,7 @@ class Embedding(Layer):
     def build(self, input_shape):
         self.W = self.init((self.input_dim, self.output_dim),
                            name='{}_W'.format(self.name))
-        self.trainable_weights = [self.W]
+        self._trainable_weights = [self.W]
         self.regularizers = []
         if self.W_regularizer:
             self.W_regularizer.set_param(self.W)

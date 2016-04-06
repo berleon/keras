@@ -65,7 +65,7 @@ class PReLU(Layer):
     def build(self, input_shape):
         self.alphas = self.init(input_shape[1:],
                                 name='{}_alphas'.format(self.name))
-        self.trainable_weights = [self.alphas]
+        self._trainable_weights = [self.alphas]
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
@@ -151,7 +151,7 @@ class ParametricSoftplus(Layer):
                                  name='{}_alphas'.format(self.name))
         self.betas = K.variable(self.beta_init * np.ones(input_shape),
                                 name='{}_betas'.format(self.name))
-        self.trainable_weights = [self.alphas, self.betas]
+        self._trainable_weights = [self.alphas, self.betas]
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
@@ -247,7 +247,7 @@ class SReLU(Layer):
                                     name='{}_a_right'.format(self.name))
         # ensure the the right part is always to the right of the left
         self.t_right_actual = self.t_left + abs(self.t_right)
-        self.trainable_weights = [self.t_left, self.a_left,
+        self._trainable_weights = [self.t_left, self.a_left,
                                   self.t_right, self.a_right]
 
     def call(self, x, mask=None):

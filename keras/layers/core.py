@@ -298,6 +298,8 @@ class Flatten(Layer):
         return (input_shape[0], np.prod(input_shape[1:]))
 
     def call(self, x, mask=None):
+        import pytest
+        pytest.set_trace()
         return K.batch_flatten(x)
 
 
@@ -580,7 +582,7 @@ class Dense(Layer):
                            name='{}_W'.format(self.name))
         self.b = K.zeros((self.output_dim,),
                          name='{}_b'.format(self.name))
-        self.trainable_weights = [self.W, self.b]
+        self._trainable_weights = [self.W, self.b]
 
         self.regularizers = []
         if self.W_regularizer:
@@ -744,7 +746,7 @@ class MaxoutDense(Layer):
         self.b = K.zeros((self.nb_feature, self.output_dim),
                          name='{}_b'.format(self.name))
 
-        self.trainable_weights = [self.W, self.b]
+        self._trainable_weights = [self.W, self.b]
         self.regularizers = []
 
         if self.W_regularizer:
@@ -872,7 +874,7 @@ class Highway(Layer):
         self.b_carry = K.variable(np.ones((input_dim,)) * self.transform_bias,
                                   name='{}_b_carry'.format(self.name))
 
-        self.trainable_weights = [self.W, self.b, self.W_carry, self.b_carry]
+        self._trainable_weights = [self.W, self.b, self.W_carry, self.b_carry]
 
         self.regularizers = []
         if self.W_regularizer:
@@ -999,7 +1001,7 @@ class TimeDistributedDense(Layer):
         self.b = K.zeros((self.output_dim,),
                          name='{}_b'.format(self.name))
 
-        self.trainable_weights = [self.W, self.b]
+        self._trainable_weights = [self.W, self.b]
         self.regularizers = []
 
         if self.W_regularizer:

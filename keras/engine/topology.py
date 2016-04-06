@@ -282,7 +282,7 @@ class Layer(object):
 
         # these properties will be set upon call of self.build(),
         # which itself will be calld upon self.add_inbound_node if necessary.
-        self.trainable_weights = []
+        self._trainable_weights = []
         self.non_trainable_weights = []
         self.regularizers = []
         self.constraints = {}  # dict {tensor: constraint instance}
@@ -830,6 +830,13 @@ class Layer(object):
                             'ill-defined for the layer. ' +
                             'Use `get_output_shape_at(node_index)` instead.')
 
+    @property
+    def trainable_weights(self):
+        if self.trainable:
+            return self._trainable_weights
+        else:
+            return []
+
     def set_weights(self, weights):
         '''Sets the weights of the layer, from Numpy arrays.
 
@@ -840,7 +847,7 @@ class Layer(object):
                 of the layer (i.e. it should match the
                 output of `get_weights`).
         '''
-        params = self.trainable_weights + self.non_trainable_weights
+        params = self._trainable_weights + self.non_trainable_weights
         if len(params) != len(weights):
             raise Exception('You called `set_weights(weights)` on layer "' + self.name +
                             '" with a  weight list of length ' + str(len(weights)) +
@@ -858,7 +865,7 @@ class Layer(object):
         '''Returns the current weights of the layer,
         as a list of numpy arrays.
         '''
-        params = self.trainable_weights + self.non_trainable_weights
+        params = self._trainable_weights + self.non_trainable_weights
         weights = []
         for p in params:
             weights.append(K.get_value(p))
@@ -924,7 +931,7 @@ class InputLayer(Layer):
         self.inbound_nodes = []
         self.outbound_nodes = []
 
-        self.trainable_weights = []
+        self._trainable_weights = []
         self.non_trainable_weights = []
         self.regularizers = []
         self.constraints = {}
@@ -1089,8 +1096,9 @@ class Merge(Layer):
         self.outbound_nodes = []
         self.constraints = {}
         self.regularizers = []
-        self.trainable_weights = []
+        self._trainable_weights = []
         self.non_trainable_weights = []
+        self.trainable = True
         self.supports_masking = False
         self.uses_learning_phase = False
         self.input_spec = None  # compatible with whatever
@@ -2233,7 +2241,7 @@ class Container(Layer):
 
         for layer in flattened_layers:
             g = f.create_group(layer.name)
-            symbolic_weights = layer.trainable_weights + layer.non_trainable_weights
+            symbolic_weights = layer._trainable_weights + layer.non_trainable_weights
             weight_values = layer.get_weights()
             weight_names = []
             for i, (w, val) in enumerate(zip(symbolic_weights, weight_values)):

@@ -298,8 +298,6 @@ class Flatten(Layer):
         return (input_shape[0], np.prod(input_shape[1:]))
 
     def call(self, x, mask=None):
-        import pytest
-        pytest.set_trace()
         return K.batch_flatten(x)
 
 

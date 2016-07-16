@@ -163,19 +163,21 @@ def check_array_lengths(X, Y, W):
         raise Exception('All input arrays (x) should have '
                         'the same number of samples.')
     set_y = set(y_lengths)
-    if len(set_y) != 1:
+    if len(set_y) > 1:
         raise Exception('All target arrays (y) should have '
                         'the same number of samples.')
     set_w = set(w_lengths)
-    if len(set_w) != 1:
+    if len(set_w) > 1:
         raise Exception('All sample_weight arrays should have '
                         'the same number of samples.')
-    if list(set_x)[0] != list(set_y)[0]:
-        raise Exception('Input arrays should have '
-                        'the same number of samples as target arrays. Found ' +
-                        str(list(set_x)[0]) + ' input samples and ' +
-                        str(list(set_y)[0]) + ' target samples.')
-    if list(set_x)[0] != list(set_w)[0]:
+
+    if len(set_y) > 0 and list(set_x)[0] != list(set_y)[0]:
+            raise Exception('Input arrays should have '
+                            'the same number of samples as target arrays. Found ' +
+                            str(list(set_x)[0]) + ' input samples and ' +
+                            str(list(set_y)[0]) + ' target samples.')
+
+    if len(set_w) > 0 and list(set_x)[0] != list(set_w)[0]:
         raise Exception('Sample_weight arrays should have '
                         'the same number of samples as input arrays. Found ' +
                         str(list(set_x)[0]) + ' input samples and ' +
@@ -454,8 +456,7 @@ def generator_queue(generator, max_q_size=10,
 
 
 class Model(Container):
-
-    def compile(self, optimizer, loss, metrics=[], loss_weights=None,
+    def compile(self, optimizer, loss=None, metrics=[], loss_weights=None,
                 sample_weight_mode=None, **kwargs):
         '''Configures the model for training.
 
@@ -483,61 +484,60 @@ class Model(Container):
         '''
         self.optimizer = optimizers.get(optimizer)
         self.sample_weight_mode = sample_weight_mode
+        if loss is None:
+            loss = []
         self.loss = loss
         self.loss_weights = loss_weights
-
-        # prepare loss weights
-        if loss_weights is None:
-            loss_weights_list = [1. for _ in range(len(self.outputs))]
-        elif type(loss_weights) is dict:
-            for name in loss_weights:
-                if name not in self.output_names:
-                    raise Exception('Unknown entry in loss_weights '
-                                    'dictionary: "' + name + '". '
-                                    'Only expected the following keys: ' +
-                                    str(self.output_names))
-            loss_weights_list = []
-            for name in self.output_names:
-                loss_weights_list.append(loss_weights.get(name, 1.))
-        elif type(loss_weights) is list:
-            if len(loss_weights) != len(self.outputs):
-                raise Exception('When passing a list as loss_weights, '
-                                'it should have one entry per model outputs. '
-                                'The model has ' + str(len(self.outputs)) +
-                                ' outputs, but you passed loss_weights=' +
-                                str(loss_weights))
-            loss_weights_list = loss_weights
-        else:
-            raise Exception('Could not interpret loss_weights argument: ' +
-                            str(loss_weights))
-
+        self.outputs_with_loss = []
         # prepare loss functions
         if type(loss) is dict:
+            loss_functions = []
             for name in loss:
                 if name not in self.output_names:
                     raise Exception('Unknown entry in loss '
                                     'dictionary: "' + name + '". '
                                     'Only expected the following keys: ' +
                                     str(self.output_names))
-            loss_functions = []
-            for name in self.output_names:
-                if name not in loss:
-                    raise Exception('Output "' + name +
-                                    '" missing from loss dictionary')
                 loss_functions.append(objectives.get(loss[name]))
+                self.outputs_with_loss.append(self.output_names.index(name))
+            self.outputs_with_loss.sort()
         elif type(loss) is list:
-            if len(loss) != len(self.outputs):
-                raise Exception('When passing a list as loss, '
-                                'it should have one entry per model outputs. '
-                                'The model has ' + str(len(self.outputs)) +
-                                ' outputs, but you passed loss=' +
-                                str(loss))
             loss_functions = [objectives.get(l) for l in loss]
+            self.outputs_with_loss = [i for i in range(len(loss))]
         else:
             loss_function = objectives.get(loss)
             loss_functions = [loss_function for _ in range(len(self.outputs))]
+            self.outputs_with_loss = [i for i in range(len(loss_functions))]
+
         self.loss_functions = loss_functions
         weighted_losses = [weighted_objective(fn) for fn in loss_functions]
+
+        self.output_names_with_loss = [self.output_names[i] for i in self.outputs_with_loss]
+
+        # prepare loss weights
+        if loss_weights is None:
+            loss_weights_list = [1. for _ in range(len(self.loss_functions))]
+        elif type(loss_weights) is dict:
+            for name in loss_weights:
+                if name not in self.output_names_with_loss:
+                    raise Exception('Unknown entry in loss_weights '
+                                    'dictionary: "' + name + '". '
+                                    'Only expected the following keys: ' +
+                                    str(self.output_names_with_loss))
+            loss_weights_list = []
+            for name in self.output_names_with_loss:
+                loss_weights_list.append(loss_weights.get(name, 1.))
+        elif type(loss_weights) is list:
+            if len(loss_weights) != len(self.loss_functions):
+                raise Exception('When passing a list as loss_weights, '
+                                'it should have one entry per model loss. '
+                                'The model has ' + str(len(self.loss_functions)) +
+                                ' losses, but you passed loss_weights=' +
+                                str(loss_weights))
+            loss_weights_list = loss_weights
+        else:
+            raise Exception('Could not interpret loss_weights argument: ' +
+                            str(loss_weights))
 
         # prepare output masks
         masks = self.compute_mask(self.inputs, mask=None)
@@ -549,15 +549,16 @@ class Model(Container):
         # prepare sample weights
         if type(sample_weight_mode) is dict:
             for name in sample_weight_mode:
-                if name not in self.output_names:
+                if name not in self.output_names_with_loss:
                     raise Exception('Unknown entry in '
                                     'sample_weight_mode dictionary: "' +
                                     name + '". '
                                     'Only expected the following keys: ' +
-                                    str(self.output_names))
+                                    str(self.output_names_with_loss))
             sample_weights = []
             sample_weight_modes = []
-            for name in self.output_names:
+
+            for name in self.output_names_with_loss:
                 if name not in sample_weight_mode:
                     raise Exception('Output "' + name +
                                     '" missing from sample_weight_modes '
@@ -578,7 +579,7 @@ class Model(Container):
                                 str(sample_weight_mode))
             sample_weights = []
             sample_weight_modes = []
-            for mode, name in zip(sample_weight_mode, self.output_names):
+            for mode, name in zip(sample_weight_mode, self.output_names_with_loss):
                 if mode == 'temporal':
                     weight = K.placeholder(ndim=2, name=name + '_sample_weights')
                     sample_weight_modes.append('temporal')
@@ -589,17 +590,17 @@ class Model(Container):
         else:
             if sample_weight_mode == 'temporal':
                 sample_weights = [K.placeholder(ndim=2, name=name + '_sample_weights')
-                                  for name in self.output_names]
-                sample_weight_modes = ['temporal' for name in self.output_names]
+                                  for name in self.output_names_with_loss]
+                sample_weight_modes = ['temporal' for name in self.output_names_with_loss]
             else:
                 sample_weights = [K.placeholder(ndim=1, name=name + '_sample_weights')
-                                  for name in self.output_names]
-                sample_weight_modes = [None for name in self.output_names]
+                                  for name in self.output_names_with_loss]
+                sample_weight_modes = [None for name in self.output_names_with_loss]
         self.sample_weight_modes = sample_weight_modes
 
         # prepare targets of model
         self.targets = []
-        for i in range(len(self.outputs)):
+        for i in self.outputs_with_loss:
             shape = self.internal_output_shapes[i]
             name = self.output_names[i]
             self.targets.append(K.placeholder(ndim=len(shape), name=name + '_target'))
@@ -610,32 +611,44 @@ class Model(Container):
         self.metrics_tensors = []
 
         # compute total loss
-        total_loss = None
-        for i in range(len(self.outputs)):
+        total_loss = 0
+        for i, out_idx in enumerate(self.outputs_with_loss):
             y_true = self.targets[i]
-            y_pred = self.outputs[i]
+            y_pred = self.outputs[out_idx]
             weighted_loss = weighted_losses[i]
             sample_weight = sample_weights[i]
-            mask = masks[i]
+            mask = masks[out_idx]
             loss_weight = loss_weights_list[i]
-            output_loss = weighted_loss(y_true, y_pred,
-                                        sample_weight, mask)
-            if len(self.outputs) > 1:
+            output_loss = weighted_loss(y_true, y_pred, sample_weight, mask)
+            if len(self.outputs_with_loss) > 1:
                 self.metrics_tensors.append(output_loss)
-                self.metrics_names.append(self.output_names[i] + '_loss')
-            if total_loss is None:
-                total_loss = loss_weight * output_loss
-            else:
-                total_loss += loss_weight * output_loss
+                self.metrics_names.append(self.output_names_with_loss[i] + '_loss')
+            total_loss += loss_weight * output_loss
+
+        keras_loss_dict = {}
+        for tensor in self.outputs + self.losses:
+            if hasattr(tensor, '_keras_loss'):
+                keras_loss_dict.update(tensor._keras_loss)
+                # TODO: handle metrics?
+
+        reg_loss = 0
+        for _, l in keras_loss_dict.items():
+            if l != 0:
+                reg_loss += K.mean(l)
 
         # add regularization penalties to the loss
         for r in self.regularizers:
-            total_loss = r(total_loss)
+            reg_loss = r(reg_loss)
 
-        # list of same size as output_names.
+        if reg_loss != 0:
+            self.metrics_tensors.append(reg_loss)
+            self.metrics_names.append("reg")
+
+        total_loss += reg_loss
+        # list of same size as output_names_with_loss.
         # contains tuples (metrics for output, names of metrics)
-        nested_metrics = collect_metrics(metrics, self.output_names)
-        for i in range(len(self.outputs)):
+        nested_metrics = collect_metrics(metrics, self.output_names_with_loss)
+        for i in range(len(self.outputs_with_loss)):
             y_true = self.targets[i]
             y_pred = self.outputs[i]
             output_metrics = nested_metrics[i]
@@ -654,14 +667,14 @@ class Model(Container):
                     else:
                         # case: categorical accuracy with dense targets
                         self.metrics_tensors.append(metrics_module.categorical_accuracy(y_true, y_pred))
-                    if len(self.output_names) == 1:
+                    if len(self.output_names_with_loss) == 1:
                         self.metrics_names.append('acc')
                     else:
                         self.metrics_names.append(self.output_layers[i].name + '_acc')
                 else:
                     metric_fn = metrics_module.get(metric)
                     self.metrics_tensors.append(metric_fn(y_true, y_pred))
-                    if len(self.output_names) == 1:
+                    if len(self.output_names_with_loss) == 1:
                         self.metrics_names.append(metric_fn.__name__)
                     else:
                         self.metrics_names.append(self.output_layers[i].name + '_' + metric_fn.__name__)
@@ -957,19 +970,21 @@ class Model(Container):
                                    self.internal_input_shapes,
                                    check_batch_dim=False,
                                    exception_prefix='model input')
-        y = standardize_input_data(y, self.output_names,
+        y = standardize_input_data(y, self.output_names_with_loss,
                                    output_shapes,
                                    check_batch_dim=False,
                                    exception_prefix='model target')
         sample_weights = standardize_sample_weights(sample_weight,
-                                                    self.output_names)
+                                                    self.output_names_with_loss)
         class_weights = standardize_class_weights(class_weight,
-                                                  self.output_names)
+                                                  self.output_names_with_loss)
         sample_weights = [standardize_weights(ref, sw, cw, mode)
                           for (ref, sw, cw, mode)
                           in zip(y, sample_weights, class_weights, self.sample_weight_modes)]
         check_array_lengths(x, y, sample_weights)
-        check_loss_and_target_compatibility(y, self.loss_functions, self.internal_output_shapes)
+
+        check_loss_and_target_compatibility(y, self.loss_functions,
+                                            [self.internal_output_shapes[i] for i in self.outputs_with_loss])
         if self.stateful and batch_size:
             if x[0].shape[0] % batch_size != 0:
                 raise Exception('In a stateful network, '
@@ -979,7 +994,7 @@ class Model(Container):
                                 str(x[0].shape[0]) + ' samples')
         return x, y, sample_weights
 
-    def fit(self, x, y, batch_size=32, nb_epoch=10, verbose=1, callbacks=[],
+    def fit(self, x, y=None, batch_size=32, nb_epoch=10, verbose=1, callbacks=[],
             validation_split=0., validation_data=None, shuffle=True,
             class_weight=None, sample_weight=None):
         '''Trains the model for a fixed number of epochs (iterations on a dataset).
@@ -1024,6 +1039,8 @@ class Model(Container):
             A `History` instance. Its `history` attribute contains
             all information collected during training.
         '''
+        if y is None:
+            y = []
         # validate user data
         x, y, sample_weights = self._standardize_user_data(x, y,
                                                            sample_weight=sample_weight,
@@ -1031,9 +1048,13 @@ class Model(Container):
                                                            check_batch_dim=False,
                                                            batch_size=batch_size)
         # prepare validation data
-        if validation_data:
+        if validation_data is not None:
             do_validation = True
-            if len(validation_data) == 2:
+            if len(validation_data) == 1:
+                val_x = validation_data
+                val_y = []
+                val_sample_weight = None
+            elif len(validation_data) == 2:
                 val_x, val_y = validation_data
                 val_sample_weight = None
             elif len(validation_data) == 3:
@@ -1176,7 +1197,7 @@ class Model(Container):
         return self._predict_loop(f, ins,
                                   batch_size=batch_size, verbose=verbose)
 
-    def train_on_batch(self, x, y,
+    def train_on_batch(self, x, y=None,
                        sample_weight=None, class_weight=None):
         '''Runs a single gradient update on a single batch of data.
 
@@ -1207,10 +1228,13 @@ class Model(Container):
             and/or metrics). The attribute `model.metrics_names` will give you
             the display labels for the scalar outputs.
         '''
+        if y is None:
+            y = []
         x, y, sample_weights = self._standardize_user_data(x, y,
                                                            sample_weight=sample_weight,
                                                            class_weight=class_weight,
                                                            check_batch_dim=True)
+
         if self.uses_learning_phase and type(K.learning_phase()) is not int:
             ins = x + y + sample_weights + [1.]
         else:

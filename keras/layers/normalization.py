@@ -66,7 +66,7 @@ class BatchNormalization(Layer):
         self.supports_masking = True
         self.beta_init = initializations.get(beta_init)
         self.gamma_init = initializations.get(gamma_init)
-        self.epsilon = epsilon
+        self.epsilon = max(1e-5, epsilon)
         self.mode = mode
         self.axis = axis
         self.momentum = momentum

@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 from . import backend as K
+import warnings
 
 
 class Regularizer(object):
@@ -7,6 +8,9 @@ class Regularizer(object):
         self.p = p
 
     def set_layer(self, layer):
+        warnings.warn("If the regularization is based on the output value of a layer, "
+                      "it would be better to create a Layer and use the `compute_loss` "
+                      "function to implement the regularization")
         self.layer = layer
 
     def __call__(self, loss):
@@ -90,6 +94,8 @@ class WeightRegularizer(Regularizer):
 
 class ActivityRegularizer(Regularizer):
     def __init__(self, l1=0., l2=0.):
+        warnings.warn("The ActivityRegularizer class is deprecated. "
+                      "Use the ActivityRegularization layer instead.")
         self.l1 = K.cast_to_floatx(l1)
         self.l2 = K.cast_to_floatx(l2)
         self.uses_learning_phase = True

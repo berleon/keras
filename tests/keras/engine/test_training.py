@@ -2,12 +2,24 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 
-from keras.layers import Dense, Dropout
+from keras.layers import Dense, Dropout, ActivityRegularization
 from keras.engine.topology import merge, Input
 from keras.engine.training import Model
 from keras.models import Sequential, Graph
 from keras import backend as K
 from keras.utils.test_utils import keras_test
+
+
+@keras_test
+def test_model_no_losses():
+    a = Input(shape=(3,), name='input_a')
+    a_2 = Dense(4, name='dense_1')(a)
+    a_3 = ActivityRegularization(l1=0.1)(a_2)
+    model = Model([a], [a_3])
+    model.compile('rmsprop')
+    input_a_np = np.random.random((10, 3))
+    model.train_on_batch([input_a_np])
+    model.fit([input_a_np])
 
 
 @keras_test

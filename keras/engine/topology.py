@@ -27,6 +27,13 @@ def to_list(x):
     return [x]
 
 
+def from_list(x):
+    if len(x) == 1:
+        return x[0]
+    else:
+        return x
+
+
 class InputSpec(object):
     '''This specifies the ndim, dtype and shape of every input to a layer.
     Every layer should expose (if appropriate) an `input_spec` attribute:
@@ -137,11 +144,15 @@ class Node(object):
         input_masks = []
         input_shapes = []
 
+        losses = {}
         for inbound_layer, node_index, tensor_index in zip(inbound_layers, node_indices, tensor_indices):
             inbound_node = inbound_layer.inbound_nodes[node_index]
             input_tensors.append(inbound_node.output_tensors[tensor_index])
             input_masks.append(inbound_node.output_masks[tensor_index])
             input_shapes.append(inbound_node.output_shapes[tensor_index])
+        for tensor in input_tensors:
+            if hasattr(tensor, '_keras_loss'):
+                losses.update(tensor._keras_loss)
 
         assert len(input_shapes) == len(input_tensors) == len(input_masks)
 
@@ -154,6 +165,14 @@ class Node(object):
             output_tensors = to_list(outbound_layer.call(input_tensors, mask=input_masks))
             output_masks = to_list(outbound_layer.compute_mask(input_tensors, input_masks))
             output_shapes = to_list(outbound_layer.get_output_shape_for(input_shapes))
+
+        output_loss = outbound_layer.compute_loss(
+            from_list(input_tensors), from_list(output_tensors),
+            from_list(input_masks), from_list(output_masks))
+
+        if output_loss != 0:
+            loss_marker = (outbound_layer, len(outbound_layer.inbound_nodes))
+            losses[loss_marker] = output_loss
 
         if not output_tensors or output_tensors[0] is None:
             raise Exception('The `call` method of layer "' +
@@ -177,6 +196,7 @@ class Node(object):
             output_tensors[i]._keras_shape = output_shapes[i]
             output_tensors[i]._uses_learning_phase = any([x._uses_learning_phase for x in input_tensors]) or outbound_layer.uses_learning_phase
             output_tensors[i]._keras_history = (outbound_layer, len(outbound_layer.inbound_nodes), i)
+            output_tensors[i]._keras_loss = losses
 
         return cls(outbound_layer,
                    inbound_layers, node_indices, tensor_indices,
@@ -584,6 +604,9 @@ class Layer(object):
         '''
         return input_shape
 
+    def compute_loss(self, input, output, input_mask=None, output_mask=None):
+        return 0
+
     def compute_mask(self, input, input_mask=None):
         '''Computes an output masking tensor, given an input tensor
         (or list thereof) and an input mask (or list thereof).
@@ -606,6 +629,8 @@ class Layer(object):
                     raise Exception('Layer ' + self.name + ' does not support masking, ' +
                                     'but was passed an input_mask: ' + str(input_mask))
             # masking not explicitly supported: return None as mask
+            if type(input) is list and False:
+                return [None for _ in range(len(input))]
             return None
         # if masking is explictly supported, by default
         # carry over the input mask
@@ -1011,6 +1036,7 @@ class InputLayer(Layer):
         # and set output_tensors' _keras_history
         input_tensor._uses_learning_phase = False
         input_tensor._keras_history = (self, 0, 0)
+        input_tensor._keras_loss = {}
         Node(self,
              inbound_layers=[],
              node_indices=[],
@@ -1569,7 +1595,7 @@ class Container(Layer):
     # Class Methods
         from_config
     '''
-    def __init__(self, input, output, name=None):
+    def __init__(self, input, output, loss=None, name=None):
         # handle name argument
         if not name:
             prefix = self.__class__.__name__.lower()
@@ -1584,10 +1610,18 @@ class Container(Layer):
             self.inputs = list(input)  # tensor or list of tensors
         else:
             self.inputs = [input]
+
         if type(output) in {list, tuple}:
             self.outputs = list(output)
         else:
             self.outputs = [output]
+
+        if type(loss) in {list, tuple}:
+            self.losses = list(loss)
+        elif loss is None:
+            self.losses = []
+        else:
+            self.losses = [loss]
 
         # check for redundancy in inputs:
         inputs_set = set(self.inputs)
@@ -1621,6 +1655,7 @@ class Container(Layer):
         # we retrieve it from there instead of recomputing it.
         self._output_mask_cache = {}
         self._output_tensor_cache = {}
+        self._output_losses_cache = {}
         self._output_shape_cache = {}
 
         # arguments validation
@@ -1653,6 +1688,7 @@ class Container(Layer):
                 cls_name = self.__class__.__name__
                 raise Exception('Output tensors to a ' + cls_name + ' must be '
                                 'Keras tensors. Found: ' + str(x))
+
         # build self.output_layers:
         for x in self.outputs:
             layer, node_index, tensor_index = x._keras_history
@@ -1680,6 +1716,12 @@ class Container(Layer):
         else:
             mask = masks
         self._output_mask_cache[mask_cache_key] = mask
+
+        for x in self.losses:
+            if not hasattr(x, '_keras_history'):
+                cls_name = self.__class__.__name__
+                raise Exception('Loss tensors to a ' + cls_name + ' must be '
+                                'Keras tensors. Found: ' + str(x))
 
         # build self.input_layers:
         for x in self.inputs:
@@ -1770,6 +1812,9 @@ class Container(Layer):
 
         for x in self.outputs:
             seen_nodes = set()
+            build_map_of_graph(x, seen_nodes, depth=0)
+
+        for x in self.losses:
             build_map_of_graph(x, seen_nodes, depth=0)
 
         # build a map {depth: list of nodes with this depth}
@@ -2022,6 +2067,11 @@ class Container(Layer):
         regs_learning_phase = any([reg.uses_learning_phase for reg in self.regularizers])
         return layers_learning_phase or regs_learning_phase
 
+    def _get_cache_key(self, inputs, masks):
+        cache_key = ','.join([str(id(x)) for x in inputs])
+        cache_key += '_' + ','.join([str(id(x)) for x in masks])
+        return cache_key
+
     def call(self, input, mask=None):
         '''`call` just reapplies all ops in the graph to the new inputs
         (e.g. build a new computational graph from the provided inputs).
@@ -2042,12 +2092,11 @@ class Container(Layer):
             masks = [None for _ in range(len(inputs))]
         else:
             masks = to_list(mask)
-        cache_key = ','.join([str(id(x)) for x in inputs])
-        cache_key += '_' + ','.join([str(id(x)) for x in masks])
+        cache_key = self._get_cache_key(inputs, masks)
         if cache_key in self._output_tensor_cache:
             return self._output_tensor_cache[cache_key]
         else:
-            output_tensors, output_masks, output_shapes = self.run_internal_graph(inputs, masks)
+            output_tensors, output_masks, output_shapes, output_losses = self.run_internal_graph(inputs, masks)
             return output_tensors
 
     def compute_mask(self, input, mask):
@@ -2056,13 +2105,31 @@ class Container(Layer):
             masks = [None for _ in range(len(inputs))]
         else:
             masks = to_list(mask)
-        cache_key = ','.join([str(id(x)) for x in inputs])
-        cache_key += '_' + ','.join([str(id(x)) for x in masks])
+        cache_key = self._get_cache_key(inputs, masks)
         if cache_key in self._output_mask_cache:
             return self._output_mask_cache[cache_key]
         else:
-            output_tensors, output_masks, output_shapes = self.run_internal_graph(inputs, masks)
+            output_tensors, output_masks, output_shapes, output_losses = self.run_internal_graph(inputs, masks)
             return output_masks
+
+    def compute_loss(self, input, output, input_mask, output_mask):
+        inputs = to_list(input)
+        if input_mask is None:
+            masks = [None for _ in range(len(inputs))]
+        else:
+            masks = to_list(input_mask)
+        cache_key = self._get_cache_key(inputs, masks)
+        if cache_key in self._output_losses_cache:
+            output_losses = self._output_losses_cache[cache_key]
+        else:
+            output_tensors, output_masks, output_shapes, output_losses = self.run_internal_graph(inputs, masks)
+
+        total_loss = 0
+        for _, loss in output_losses.items():
+            if loss != 0:
+                total_loss += loss
+
+        return total_loss
 
     def get_output_shape_for(self, input_shape):
         input_shapes = to_list(input_shape)
@@ -2154,7 +2221,7 @@ class Container(Layer):
             masks: list of masks (tensors or None).
 
         # Returns
-            Three lists: output_tensors, output_masks, output_shapes
+            Four lists: output_tensors, output_masks, output_shapes, output_losses
         '''
         assert type(inputs) is list
         if masks is None:
@@ -2166,7 +2233,7 @@ class Container(Layer):
         # TODO: raise exception when a .compute_mask does not return a list the same size as call
         tensor_map = {}
         for x, y, mask in zip(self.inputs, inputs, masks):
-            tensor_map[str(id(x))] = (y, mask)
+            tensor_map[str(id(x))] = (y, mask, {})
 
         depth_keys = list(self.nodes_by_depth.keys())
         depth_keys.sort(reverse=True)
@@ -2188,16 +2255,29 @@ class Container(Layer):
                 if len(computed_data) == len(reference_input_tensors):
                     # call layer
                     if len(computed_data) == 1:
-                        computed_tensor, computed_mask = computed_data[0]
+                        computed_tensor, computed_mask, computed_loss = computed_data[0]
                         output_tensors = to_list(layer.call(computed_tensor, computed_mask))
                         output_masks = to_list(layer.compute_mask(computed_tensor, computed_mask))
                         computed_tensors = [computed_tensor]
                         computed_masks = [computed_mask]
+                        computed_losses = [computed_loss]
                     else:
                         computed_tensors = [x[0] for x in computed_data]
                         computed_masks = [x[1] for x in computed_data]
+                        computed_losses = [x[2] for x in computed_data]
                         output_tensors = to_list(layer.call(computed_tensors, computed_masks))
                         output_masks = to_list(layer.compute_mask(computed_tensors, computed_masks))
+
+                    output_loss = layer.compute_loss(
+                        from_list(computed_tensors), from_list(output_tensors),
+                        from_list(computed_masks), from_list(output_masks))
+                    losses = {}
+
+                    for loss in computed_losses:
+                        losses.update(loss)
+
+                    loss_marker = (layer, "-".join([str(id(x)) for x in reference_input_tensors]))
+                    losses[loss_marker] = output_loss
 
                     # update _keras_shape
                     if all([hasattr(x, '_keras_shape') for x in computed_tensors]):
@@ -2213,7 +2293,7 @@ class Container(Layer):
 
                     # update tensor_map
                     for x, y, mask in zip(reference_output_tensors, output_tensors, output_masks):
-                        tensor_map[str(id(x))] = (y, mask)
+                        tensor_map[str(id(x))] = (y, mask, losses)
 
         output_tensors = []
         output_masks = []
@@ -2221,7 +2301,7 @@ class Container(Layer):
         for x in self.outputs:
             # todo: better error msg
             assert str(id(x)) in tensor_map, 'Could not compute output ' + str(x)
-            tensor, mask = tensor_map[str(id(x))]
+            tensor, mask, losses = tensor_map[str(id(x))]
             if hasattr(tensor, '_keras_shape') and output_shapes is not None:
                 shape = tensor._keras_shape
                 output_shapes.append(shape)
@@ -2229,10 +2309,10 @@ class Container(Layer):
                 output_shapes = None
             output_tensors.append(tensor)
             output_masks.append(mask)
+            output_losses = losses
 
         # update cache; keys are based on ids on input tensors and inputs masks
-        cache_key = ','.join([str(id(x)) for x in inputs])
-        cache_key += '_' + ','.join([str(id(x)) for x in masks])
+        cache_key = self._get_cache_key(inputs, masks)
 
         if len(output_tensors) == 1:
             output_tensors = output_tensors[0]
@@ -2246,6 +2326,8 @@ class Container(Layer):
         else:
             self._output_mask_cache[cache_key] = output_masks
 
+        self._output_losses_cache[cache_key] = output_losses
+
         if output_shapes is not None:
             input_shapes = [x._keras_shape for x in inputs]
             cache_key = ','.join([str(x) for x in input_shapes])
@@ -2254,7 +2336,7 @@ class Container(Layer):
                 self._output_shape_cache[cache_key] = output_shapes
             else:
                 self._output_shape_cache[cache_key] = output_shapes
-        return output_tensors, output_masks, output_shapes
+        return output_tensors, output_masks, output_shapes, output_losses
 
     def get_config(self):
         config = {

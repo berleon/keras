@@ -267,9 +267,16 @@ def test_activity_regularization():
     z = core.Dense(2)(x)
     y = layer(z)
     model = Model(input=x, output=y)
-    model.compile('rmsprop', 'mse', mode='FAST_COMPILE')
-
+    model.compile('rmsprop', 'mse')
     model.predict(np.random.random((2, 3)))
+
+    # test multiple models
+    x2 = Input(shape=(3,))
+    z2 = core.Dense(2)(x2)
+    y2 = layer(z2)
+    model2 = Model(input=x2, output=y2)
+    model2.compile('rmsprop', 'mse')
+    model2.predict(np.random.random((2, 3)))
 
     # test serialization
     model_config = model.get_config()

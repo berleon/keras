@@ -373,6 +373,7 @@ class Sequential(Model):
         self._output_mask_cache = self.model._output_mask_cache
         self._output_tensor_cache = self.model._output_tensor_cache
         self._output_shape_cache = self.model._output_shape_cache
+        self._output_losses_cache = self.model._output_losses_cache
         self.input_layers = self.model.input_layers
         self.input_layers_node_indices = self.model.input_layers_node_indices
         self.input_layers_tensor_indices = self.model.input_layers_tensor_indices

@@ -57,8 +57,8 @@ def test_batchnorm_mode_0_convnet():
     X = np.random.normal(loc=5.0, scale=10.0, size=(1000, 3, 4, 4))
     model.fit(X, X, nb_epoch=4, verbose=0)
     out = model.predict(X)
-    out -= np.reshape(K.eval(norm_m0.beta), (1, 3, 1, 1))
-    out /= np.reshape(K.eval(norm_m0.gamma), (1, 3, 1, 1))
+    out -= np.reshape(np.array(K.eval(norm_m0.beta)), (1, 3, 1, 1))
+    out /= np.reshape(np.array(K.eval(norm_m0.gamma)), (1, 3, 1, 1))
 
     assert_allclose(np.mean(out, axis=(0, 2, 3)), 0.0, atol=1e-1)
     assert_allclose(np.std(out, axis=(0, 2, 3)), 1.0, atol=1e-1)

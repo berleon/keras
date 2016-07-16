@@ -768,11 +768,12 @@ class ActivityRegularization(Layer):
         self.supports_masking = True
         self.l1 = l1
         self.l2 = l2
-
         super(ActivityRegularization, self).__init__(**kwargs)
-        activity_regularizer = ActivityRegularizer(l1=l1, l2=l2)
-        activity_regularizer.set_layer(self)
-        self.regularizers = [activity_regularizer]
+
+    def compute_loss(self, input, output, input_mask=None, output_mask=None):
+        loss = self.l1 * K.sum(K.mean(K.abs(output), axis=0))
+        loss += self.l2 * K.sum(K.mean(K.square(output), axis=0))
+        return loss
 
     def get_config(self):
         config = {'l1': self.l1,

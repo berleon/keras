@@ -2,8 +2,8 @@ import pytest
 import json
 import numpy as np
 
-from keras.layers import Dense, Dropout, InputLayer
-from keras.engine import merge, Input, get_source_inputs
+from keras.layers import Dense, Dropout, InputLayer, ActivityRegularization
+from keras.engine import merge, Input, get_source_inputs, Layer
 from keras.models import Model, Sequential
 from keras import backend as K
 from keras.models import model_from_json, model_from_yaml
@@ -104,6 +104,7 @@ def test_node_construction():
     b = Input(shape=(32,), name='input_b')
 
     assert a._keras_shape == (None, 32)
+    assert a._keras_loss == {}
     a_layer, a_node_index, a_tensor_index = a._keras_history
     b_layer, b_node_index, b_tensor_index = b._keras_history
     assert len(a_layer.inbound_nodes) == 1
@@ -172,6 +173,20 @@ def test_node_construction():
     assert dense.get_input_mask_at(1) is None
     assert dense.get_output_mask_at(0) is None
     assert dense.get_output_mask_at(1) is None
+
+
+def test_compute_loss():
+    a = Input(shape=(6,), name='input_a')
+    d = Dense(10)(a)
+    act_reg = ActivityRegularization(l1=0.01)
+    y = act_reg(d)
+    assert len(y._keras_loss) == 1
+    keras_loss = list(y._keras_loss.values())[0]
+    act_loss = act_reg.compute_loss(None, d)
+    a_np = np.random.random((10, 6))
+    keras_loss_np = K.function([a], [keras_loss])([a_np])
+    act_loss_np = K.function([a], [act_loss])([a_np])
+    np.testing.assert_allclose(keras_loss_np, act_loss_np)
 
 
 @keras_test
